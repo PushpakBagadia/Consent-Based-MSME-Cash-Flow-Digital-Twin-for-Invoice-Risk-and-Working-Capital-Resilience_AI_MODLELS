@@ -30,9 +30,6 @@ class ForecastRequest(BaseModel):
     horizon_days: int = Field(90, description="How many days ahead to forecast")
     n_sims: int = Field(5000, description="Number of Monte Carlo simulations")
     min_buffer: float = Field(0, description="Cash level considered a liquidity breach")
-    overdue_cap: float = Field(
-        0.4, description="Confidence cap for invoices already past their own P90"
-    )
     model1_api_url: str = Field(
         "http://127.0.0.1:8000/predict/open-invoices",
         description="Where to fetch Model 1's predictions from",
@@ -50,8 +47,10 @@ class DailyForecast(BaseModel):
 class ForecastSummary(BaseModel):
     expected_min_cash: float
     days_to_likely_breach: Optional[int]
-    overdue_invoice_count: int
-    overdue_invoice_value: float
+    forward_invoice_count: int
+    forward_invoice_value: float
+    backlog_invoice_count: int
+    backlog_invoice_value: float
 
 
 class ForecastResponse(BaseModel):
@@ -90,7 +89,6 @@ def forecast_cashflow(request: ForecastRequest):
         horizon_days=request.horizon_days,
         n_sims=request.n_sims,
         min_buffer=request.min_buffer,
-        overdue_cap=request.overdue_cap,
     )
 
     return ForecastResponse(
