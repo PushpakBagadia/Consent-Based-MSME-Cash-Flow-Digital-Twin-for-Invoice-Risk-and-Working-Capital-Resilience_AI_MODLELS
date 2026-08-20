@@ -13,15 +13,16 @@ terminal - this API calls that one internally, same as model1_client.py
 already did when we tested it directly.
 """
 from typing import Optional
-
-from fastapi import FastAPI, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from simulation.model1_client import load_model1_predictions
 from simulation.monte_carlo import simulate_cashflow
 
-app = FastAPI(title="Model 2 - Cash-Flow Forecast API")
-
+router = APIRouter(
+    prefix="/cashflow",
+    tags=["Model 2 - Cash Flow"],
+)
 
 class ForecastRequest(BaseModel):
     opening_cash: float = Field(..., description="Cash on hand today")
@@ -58,12 +59,12 @@ class ForecastResponse(BaseModel):
     summary: ForecastSummary
 
 
-@app.get("/health")
+@router.get("/health")
 def health():
     return {"status": "ok"}
 
 
-@app.post("/forecast-cashflow", response_model=ForecastResponse)
+@router.post("/forecast-cashflow", response_model=ForecastResponse)
 def forecast_cashflow(request: ForecastRequest):
     """
     Fetches live predictions from Model 1, runs the Monte Carlo cash-flow

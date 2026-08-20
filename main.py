@@ -38,7 +38,8 @@ from model5_shap import (
 )
 
 from ocr_extraction import extract_invoice
-
+from api.cashflow_api import router as cashflow_router
+from anomaly_api import router as anomaly_router
 
 # ============================================================
 # PATHS
@@ -73,6 +74,8 @@ app = FastAPI(
     title="MSME Cash-Flow AI - Model 1 API",
 )
 
+app.include_router(cashflow_router)
+app.include_router(anomaly_router)
 
 # ============================================================
 # GLOBAL MODEL ARTIFACTS
