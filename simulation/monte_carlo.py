@@ -1,19 +1,27 @@
 """
-Monte Carlo cash-flow simulation engine (v3).
+Monte Carlo cash-flow simulation engine (v4).
 
 Consumes Model 1's real output contract (invoice_id, invoice_amount,
-days_since_issue, p10/p50/p90_payment_days) and produces a daily P10/P50/P90
-cash forecast.
+days_since_issue, p10/p50/p90_payment_days) and produces a daily
+P10/P50/P90 cash forecast.
 
-v3 change: invoices that are already past their OWN p90_payment_days (i.e.
-Model 1's worst-case prediction has already been blown through, and it's
-still unpaid) are no longer sampled from Model 1's distribution directly -
-doing so would imply near-100% "paid any moment now", which is an
-unjustified extrapolation of a model that was never confident about
-invoices this overdue. Instead, a fraction of simulations (`overdue_cap`)
-assume it gets collected soon; the rest assume it stays uncollected for
-the whole forecast window. This keeps severely overdue invoices from
-silently inflating the forecast.
+v4 change: BACKLOG SPLIT. Invoices already past their own P50 (median)
+prediction - i.e. the model's own "typical case" already didn't happen -
+are no longer fed into the day-by-day forecast at all. The previous
+approach (v3's overdue_cap) only special-cased invoices past their P90,
+but invoices between P50 and P90 were still simulated normally, and any
+of their sampled "days from today" that came out negative got clipped to
+0 - piling probability mass onto day 0 and producing an unrealistically
+large day-0 cash jump (confirmed on real data: 100 invoices, ~1.65 crore,
+were already past their own P50, vs. only 78 past P90).
+
+Backlog invoices are now reported separately (count + value) instead of
+folded into the forecast curve - the day-by-day forecast only ever
+contains invoices whose predicted payment window is still genuinely ahead
+of today. This is an honest separation of two different questions: "what
+does our near-term cash trajectory look like" (forward) vs. "how much are
+we owed that's already overdue and may or may not ever be collected"
+(backlog) - rather than blending the second into the first.
 """
 import numpy as np
 import pandas as pd
@@ -21,24 +29,19 @@ import pandas as pd
 from simulation.quantile_sampler import sample_payment_days
 
 
-def sample_invoice_payment_day(row, n_sims, rng, horizon_days, overdue_cap=0.4):
+def split_backlog(predictions: pd.DataFrame):
     """
-    Returns an array of shape (n_sims,): "days from today" this ONE invoice
-    is paid, in each simulation.
+    Splits predictions into (backlog_df, forward_df).
+
+    backlog: days_since_issue > p50_payment_days - the model's OWN median
+    prediction has already passed, so this invoice is now more likely late
+    than on-time. Excluded from the day-by-day forecast.
+
+    forward: everything else - genuinely still-plausible future payments,
+    safe to simulate day-by-day.
     """
-    if row.days_since_issue > row.p90_payment_days:
-        # Severely overdue: don't trust Model 1's distribution here - cap
-        # confidence instead of extrapolating it.
-        is_collected_soon = rng.random(n_sims) < overdue_cap
-        # horizon_days + 1 = "does not land inside this forecast window at all"
-        return np.where(is_collected_soon, 0, horizon_days + 1)
-    else:
-        payment_days_from_issue = sample_payment_days(
-            row.p10_payment_days, row.p50_payment_days, row.p90_payment_days,
-            n_sims, rng
-        )
-        payment_day_from_today = payment_days_from_issue - row.days_since_issue
-        return np.clip(payment_day_from_today, 0, None)
+    is_backlog = predictions["days_since_issue"] > predictions["p50_payment_days"]
+    return predictions[is_backlog].copy(), predictions[~is_backlog].copy()
 
 
 def simulate_cashflow(
@@ -49,25 +52,26 @@ def simulate_cashflow(
     horizon_days=90,       # how many days ahead to forecast
     n_sims=3000,
     min_buffer=0,          # cash level considered a "liquidity breach"
-    overdue_cap=0.4,       # see module docstring - confidence cap for severely overdue invoices
     seed=42,
 ):
-    rng = np.random.default_rng(seed)
+    backlog, forward = split_backlog(predictions)
 
+    rng = np.random.default_rng(seed)
     days = np.arange(0, horizon_days + 1)
     cumulative_inflow = np.zeros((n_sims, len(days)))
 
-    overdue_count = 0
-    overdue_value = 0.0
-
-    for row in predictions.itertuples(index=False):
-        if row.days_since_issue > row.p90_payment_days:
-            overdue_count += 1
-            overdue_value += row.invoice_amount
-
-        payment_day_from_today = sample_invoice_payment_day(
-            row, n_sims, rng, horizon_days, overdue_cap
+    for row in forward.itertuples(index=False):
+        payment_days_from_issue = sample_payment_days(
+            row.p10_payment_days, row.p50_payment_days, row.p90_payment_days,
+            n_sims, rng
         )
+        payment_day_from_today = payment_days_from_issue - row.days_since_issue
+        # A forward invoice is, by definition, not past its own median yet -
+        # so only a small tail of samples can still land before today. That
+        # residual is still clipped to 0 rather than allowed negative, but
+        # it's now a minor edge effect, not the dominant driver it was before.
+        payment_day_from_today = np.clip(payment_day_from_today, 0, None)
+
         paid_on_or_before = (payment_day_from_today[:, None] <= days[None, :])
         cumulative_inflow += paid_on_or_before * row.invoice_amount
 
@@ -94,8 +98,10 @@ def simulate_cashflow(
     summary = {
         "expected_min_cash": float(expected_min_cash),
         "days_to_likely_breach": days_to_likely_breach,
-        "overdue_invoice_count": overdue_count,
-        "overdue_invoice_value": overdue_value,
+        "forward_invoice_count": len(forward),
+        "forward_invoice_value": float(forward["invoice_amount"].sum()) if len(forward) else 0.0,
+        "backlog_invoice_count": len(backlog),
+        "backlog_invoice_value": float(backlog["invoice_amount"].sum()) if len(backlog) else 0.0,
     }
 
     return forecast, summary
