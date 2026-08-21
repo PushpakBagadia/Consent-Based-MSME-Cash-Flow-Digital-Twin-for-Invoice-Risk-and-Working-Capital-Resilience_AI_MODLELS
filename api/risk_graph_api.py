@@ -29,6 +29,7 @@ def health():
 def risk_graph(
     opening_cash: float = Query(..., description="Cash on hand today"),
     daily_expense: float = Query(..., description="Flat expected daily outflow"),
+    horizon_days: int = Query(90, description="How many days ahead the underlying forecast covers"),
     min_buffer: float = Query(0, description="Cash level considered a liquidity breach"),
     scope: str = Query("overdue", description="'overdue' (default, past-P90 invoices only) or 'all'"),
     include_anomalies: bool = Query(True, description="Join Model 3's anomaly_type per invoice"),
@@ -36,13 +37,15 @@ def risk_graph(
 ):
     """
     Returns the causal risk graph: customer -> invoice -> buffer -> obligation,
-    with delays / contributes_to / breaches edges. See risk_graph/build_risk_graph.py
-    for the full node/edge schema and enrichment details.
+    plus expense -> buffer, with delays / contributes_to / reduces / breaches
+    edges. See risk_graph/build_risk_graph.py for the full node/edge schema
+    and enrichment details.
     """
     try:
         return build_risk_graph(
             opening_cash=opening_cash,
             daily_expense=daily_expense,
+            horizon_days=horizon_days,
             min_buffer=min_buffer,
             scope=scope,
             include_anomalies=include_anomalies,
