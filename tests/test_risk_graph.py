@@ -188,8 +188,48 @@ def test_fails_soft_when_model3_and_model5_unreachable():
     print("PASSED: test_fails_soft_when_model3_and_model5_unreachable")
 
 
+def test_expense_node_and_reduces_edge():
+    """The spec explicitly requires an expense node - this proves it's
+    present with the right values, and the reduces edge points at buffer."""
+    raw_df = _make_raw_df()
+    with tempfile.TemporaryDirectory() as tmp:
+        raw_path = Path(tmp) / "invoices.csv"
+        raw_df.to_csv(raw_path, index=False)
+
+        mock_get, _ = _mock_requests(get_routes={"predict/open-invoices": FAKE_PREDICTIONS})
+        original_get = requests.get
+        requests.get = mock_get
+        try:
+            graph = build_risk_graph(
+                opening_cash=100000, daily_expense=2500, horizon_days=30,
+                raw_invoices_path=str(raw_path), scope="overdue",
+                include_anomalies=False, include_shap=False,
+            )
+        finally:
+            requests.get = original_get
+
+    expense_nodes = [n for n in graph["nodes"] if n["type"] == "expense"]
+    reduces_edges = [e for e in graph["edges"] if e["type"] == "reduces"]
+
+    assert len(expense_nodes) == 1
+    assert expense_nodes[0]["daily_expense"] == 2500.0
+    assert expense_nodes[0]["horizon_days"] == 30
+    assert expense_nodes[0]["total_expense_over_horizon"] == 75000.0, "expected 2500*30=75000"
+
+    assert len(reduces_edges) == 1
+    assert reduces_edges[0]["source"] == "expense:daily_operating"
+    assert reduces_edges[0]["target"] == "buffer:cash_position"
+    assert reduces_edges[0]["weight"] == 75000.0, (
+        "reduces edge weight should be the TOTAL projected expense over the "
+        "horizon (2500*30=75000), consistent with contributes_to edges using "
+        "full invoice_amount rather than a per-day figure - not just daily_expense"
+    )
+    print("PASSED: test_expense_node_and_reduces_edge")
+
+
 if __name__ == "__main__":
     test_scope_overdue_only_includes_past_p90_invoices()
     test_full_enrichment_end_to_end()
     test_fails_soft_when_model3_and_model5_unreachable()
+    test_expense_node_and_reduces_edge()
     print("\nAll risk_graph integration tests passed.")

@@ -5,9 +5,10 @@ NOT a trained model - deterministic graph construction from what Models 1,
 2, 3, and 5 already computed:
 
     customer --delays--> invoice --contributes_to--> buffer --breaches--> obligation
+    expense  --reduces-->                buffer
 
-Node types: customer, invoice, buffer, obligation
-Edge types: delays, contributes_to, breaches
+Node types: customer, invoice, buffer, obligation, expense
+Edge types: delays, contributes_to, reduces, breaches
 
 Enrichment (both OPTIONAL and FAIL-SOFT - the graph must always build even
 if Model 3 or Model 5 are down, since a live demo can't depend on every
@@ -34,11 +35,13 @@ from risk_graph.model5_client import load_shap_edge_weights
 
 OBLIGATION_NODE_ID = "obligation:working_capital"
 BUFFER_NODE_ID = "buffer:cash_position"
+EXPENSE_NODE_ID = "expense:daily_operating"
 
 
 def build_risk_graph(
     opening_cash,
     daily_expense,
+    horizon_days=90,
     raw_invoices_path="data/raw/invoices.csv",
     model1_api_url="http://127.0.0.1:8000/predict/open-invoices",
     model3_api_url="http://127.0.0.1:8002/detect-anomalies/open",
@@ -52,7 +55,8 @@ def build_risk_graph(
     raw = pd.read_csv(raw_invoices_path)
 
     forecast, summary = simulate_cashflow(
-        predictions, opening_cash=opening_cash, daily_expense=daily_expense, min_buffer=min_buffer,
+        predictions, opening_cash=opening_cash, daily_expense=daily_expense,
+        horizon_days=horizon_days, min_buffer=min_buffer,
     )
     max_breach_prob = float(forecast["prob_breach"].max())
 
@@ -114,6 +118,12 @@ def build_risk_graph(
                 "dataset exists to break this down further"
             ),
         },
+        {
+            "id": EXPENSE_NODE_ID, "type": "expense", "label": "Daily Operating Expenses",
+            "daily_expense": float(daily_expense),
+            "horizon_days": horizon_days,
+            "total_expense_over_horizon": float(daily_expense) * horizon_days,
+        },
     ]
     edges = []
     seen_customers = set()
@@ -150,6 +160,10 @@ def build_risk_graph(
             "weight": float(row.invoice_amount),
         })
 
+    edges.append({
+        "source": EXPENSE_NODE_ID, "target": BUFFER_NODE_ID, "type": "reduces",
+        "weight": float(daily_expense) * horizon_days,
+    })
     edges.append({
         "source": BUFFER_NODE_ID, "target": OBLIGATION_NODE_ID, "type": "breaches",
         "weight": round(max_breach_prob, 4),
