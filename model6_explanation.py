@@ -28,9 +28,9 @@ from dotenv import load_dotenv
 import groq
 
 load_dotenv()
-MODEL_NAME = "llama-3.3-70b-versatile"  # solid general-purpose Groq model, fast + cheap
+MODEL_NAME = "openai/gpt-oss-120b"  # solid general-purpose Groq model, fast + cheap
 REQUEST_TIMEOUT_SECONDS = 8.0
-MAX_OUTPUT_TOKENS = 200
+MAX_OUTPUT_TOKENS = 300
 NUMBER_MATCH_TOLERANCE = 0.6  # allowed rounding slack between LLM text and real numbers
 my_api_key=os.getenv("GROQ_API_KEY")
 _client = groq.Groq(
@@ -144,6 +144,7 @@ def narrate_invoice(explanation: dict, confidence: str | None = None) -> dict:
             response = _client.chat.completions.create(
                 model=MODEL_NAME,
                 max_tokens=MAX_OUTPUT_TOKENS,
+                reasoning_effort="low",
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": user_message},
@@ -153,9 +154,11 @@ def narrate_invoice(explanation: dict, confidence: str | None = None) -> dict:
 
             if text and _numbers_are_valid(text, explanation):
                 return {"text": text, "source": "llm"}
-            # Numbers didn't check out - don't retry the same bad output, fall back
+
+            print(f"[Model 6] Rejected LLM output (failed numeric check): {text!r}")
             break
-        except (groq.APIConnectionError, groq.APIStatusError, groq.APITimeoutError):
+        except (groq.APIConnectionError, groq.APIStatusError, groq.APITimeoutError) as e:
+            print(f"[Model 6] Groq call failed on attempt {attempt+1}: {type(e).__name__}: {e}")
             continue  # retry once on transient errors
 
     return {"text": fallback_narration(explanation), "source": "fallback"}

@@ -17,6 +17,7 @@ Model 5's own explain_invoice() already sorts each invoice's contributions
 by absolute SHAP value, most-influential first (see model5_shap.py's
 `sorted(grouped.items(), key=lambda kv: abs(kv[1]), reverse=True)`) - so
 "top contribution" is simply contributions[0], no re-sorting needed here.
+
 """
 import pandas as pd
 import requests

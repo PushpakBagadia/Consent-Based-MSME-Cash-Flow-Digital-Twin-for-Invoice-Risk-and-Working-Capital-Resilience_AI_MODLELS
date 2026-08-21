@@ -26,7 +26,7 @@ we owed that's already overdue and may or may not ever be collected"
 import numpy as np
 import pandas as pd
 
-from simulation.quantile_sampler import sample_payment_days
+from Monte_Carlo.quantile_sampler import sample_payment_days
 
 
 def split_backlog(predictions: pd.DataFrame):

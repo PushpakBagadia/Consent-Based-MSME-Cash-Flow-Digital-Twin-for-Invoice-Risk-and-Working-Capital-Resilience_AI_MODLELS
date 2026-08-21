@@ -13,19 +13,19 @@ so no separate server is needed for that part. If Model 3 or Model 5 are
 down, the graph still builds (fail-soft) - just without anomaly_type /
 SHAP annotations, reported plainly in the response's summary.
 """
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from risk_graph.build_risk_graph import build_risk_graph
 
-app = FastAPI(title="Model 8 - Causal Risk Graph API")
+router = APIRouter(prefix="/risk-graph", tags=["Model 8 - Risk Graph"])
 
 
-@app.get("/health")
+@router.get("/health")
 def health():
     return {"status": "ok"}
 
 
-@app.get("/risk-graph")
+@router.get("/risk-graph")
 def risk_graph(
     opening_cash: float = Query(..., description="Cash on hand today"),
     daily_expense: float = Query(..., description="Flat expected daily outflow"),

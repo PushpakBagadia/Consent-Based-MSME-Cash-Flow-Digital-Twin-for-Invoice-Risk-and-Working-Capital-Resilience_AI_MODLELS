@@ -5,7 +5,7 @@ Run: python -m tests.test_monte_carlo
 """
 import pandas as pd
 
-from simulation.monte_carlo import simulate_cashflow, split_backlog
+from Monte_Carlo.monte_carlo import simulate_cashflow, split_backlog
 
 
 def test_single_invoice_pays_within_its_window():

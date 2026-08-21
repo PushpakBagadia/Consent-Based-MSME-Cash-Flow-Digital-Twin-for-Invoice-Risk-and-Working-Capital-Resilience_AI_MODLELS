@@ -27,8 +27,8 @@ graph demo-readable instead of showing all 347 open invoices at once.
 """
 import pandas as pd
 
-from simulation.model1_client import load_model1_predictions
-from simulation.monte_carlo import simulate_cashflow
+from Monte_Carlo.model1_client import load_model1_predictions
+from Monte_Carlo.monte_carlo import simulate_cashflow
 from risk_graph.model3_client import load_anomaly_flags, attach_anomaly_flags
 from risk_graph.model5_client import load_shap_edge_weights
 

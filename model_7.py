@@ -1,12 +1,47 @@
 import json
 import os
+from pathlib import Path
+
 import pandas as pd
+
+try:
+    import httpx
+except ImportError:
+    httpx = None
 
 # MODEL 7 - NON-DEBT-FIRST RECOMMENDATION RANKER
 
-CSV_FILE = "invoices.csv"
-MODEL_2_FILE = "model_2_input.json"
-OUTPUT_FILE = "model_7_output.json"
+# --------------------------------------------------------------------
+# PATHS
+#
+# Resolved relative to THIS file, not the process's working directory.
+# This means Model 7 behaves consistently whether it's run directly
+# (python model_7.py) or imported/served from a different directory
+# (e.g. mounted as a FastAPI router under uvicorn).
+# --------------------------------------------------------------------
+
+BASE_DIR = Path(__file__).resolve().parent
+
+CSV_FILE = Path(
+    os.environ.get(
+        "MODEL7_CSV_FILE",
+        BASE_DIR / "invoices.csv",
+    )
+)
+
+MODEL_2_FILE = Path(
+    os.environ.get(
+        "MODEL7_MODEL_2_FILE",
+        BASE_DIR / "model_2_input.json",
+    )
+)
+
+OUTPUT_FILE = Path(
+    os.environ.get(
+        "MODEL7_OUTPUT_FILE",
+        BASE_DIR / "model_7_output.json",
+    )
+)
 
 # MODEL 7 WEIGHTS
 
@@ -60,16 +95,18 @@ RECOVERY_OPTIONS = [
 
 # 1. LOAD DATASET
 
-def load_dataset():
+def load_dataset(csv_path=CSV_FILE):
     """Load and clean the invoice dataset."""
 
-    if not os.path.exists(CSV_FILE):
+    csv_path = Path(csv_path)
+
+    if not csv_path.exists():
         raise FileNotFoundError(
-            f"Could not find {CSV_FILE}. "
-            f"Make sure it is in the same folder as model_7.py."
+            f"Could not find {csv_path}. "
+            f"Make sure invoices.csv is present, or set MODEL7_CSV_FILE."
         )
 
-    df = pd.read_csv(CSV_FILE)
+    df = pd.read_csv(csv_path)
 
     # Date columns
     date_columns = [
@@ -232,18 +269,61 @@ def calculate_overall_metrics(df):
 
 # 5. LOAD MODEL 2 OUTPUT
 
-def load_model_2_output():
+def load_model_2_output(model_2_url=None, model_2_file=MODEL_2_FILE):
     """
-    Load Model 2 JSON if available.
+    Load Model 2 data.
 
-    If it is not available, Model 7 can still run using
-    the invoice dataset.
+    Priority order:
+        1. Live fetch from `model_2_url`, if provided (e.g. Model 2's
+           own endpoint when running under the shared FastAPI server).
+        2. Local `model_2_file` JSON, if present on disk.
+        3. Dataset-only fallback (fail-soft) - Model 7 can still run
+           using just the invoice CSV.
+
+    This keeps the original CLI behaviour identical when `model_2_url`
+    is not supplied (i.e. `load_model_2_output()` with no args behaves
+    exactly as before).
     """
 
-    if not os.path.exists(MODEL_2_FILE):
+    # ----------------------------------------------------------------
+    # 1. Live fetch, if a URL was given.
+    # ----------------------------------------------------------------
+    if model_2_url:
+
+        if httpx is None:
+            print(
+                "\nWarning: httpx is not installed, cannot fetch "
+                "Model 2 live. Run: pip install httpx"
+            )
+        else:
+            try:
+                response = httpx.get(model_2_url, timeout=5.0)
+                response.raise_for_status()
+
+                print(
+                    f"\nModel 2 data fetched live from {model_2_url}"
+                )
+
+                return response.json()
+
+            except Exception as error:
+                print(
+                    f"\nWarning: could not reach Model 2 live at "
+                    f"{model_2_url}: {error}"
+                )
+                print(
+                    "Falling back to local file / dataset-only mode."
+                )
+
+    # ----------------------------------------------------------------
+    # 2. Local file fallback.
+    # ----------------------------------------------------------------
+    model_2_file = Path(model_2_file)
+
+    if not model_2_file.exists():
 
         print(
-            f"\n{MODEL_2_FILE} not found."
+            f"\n{model_2_file} not found."
         )
 
         print(
@@ -257,7 +337,7 @@ def load_model_2_output():
 
     try:
         with open(
-            MODEL_2_FILE,
+            model_2_file,
             "r",
             encoding="utf-8"
         ) as file:
@@ -266,7 +346,7 @@ def load_model_2_output():
 
         print(
             f"\nModel 2 input loaded from "
-            f"{MODEL_2_FILE}"
+            f"{model_2_file}"
         )
 
         return data
@@ -668,11 +748,11 @@ def create_output(
 
 # 11. SAVE JSON
 
-def save_output(output):
+def save_output(output, output_file=OUTPUT_FILE):
     """Save Model 7 results to JSON."""
 
     with open(
-        OUTPUT_FILE,
+        output_file,
         "w",
         encoding="utf-8"
     ) as file:
@@ -685,7 +765,7 @@ def save_output(output):
 
     print(
         f"\nModel 7 output saved to "
-        f"{OUTPUT_FILE}"
+        f"{output_file}"
     )
 
 # 12. MAIN PROGRAM

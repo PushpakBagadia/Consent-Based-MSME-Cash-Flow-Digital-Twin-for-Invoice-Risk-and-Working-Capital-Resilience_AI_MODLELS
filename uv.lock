@@ -1277,6 +1277,7 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "groq" },
+    { name = "httpx" },
     { name = "jupyter" },
     { name = "matplotlib" },
     { name = "numpy" },
@@ -1299,6 +1300,7 @@ dependencies = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.141.1" },
     { name = "groq", specifier = ">=1.6.0" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "matplotlib", specifier = ">=3.11.1" },
     { name = "numpy", specifier = ">=2.5.2" },

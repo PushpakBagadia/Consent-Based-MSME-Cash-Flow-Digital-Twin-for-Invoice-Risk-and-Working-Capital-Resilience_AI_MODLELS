@@ -1,4 +1,4 @@
-from simulation.model1_client import load_model1_predictions
+from Monte_Carlo.model1_client import load_model1_predictions
 
 df = load_model1_predictions()
 print("Shape:", df.shape)

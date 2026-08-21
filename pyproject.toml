@@ -10,6 +10,7 @@ requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.141.1",
     "groq>=1.6.0",
+    "httpx>=0.28.1",
     "jupyter>=1.1.1",
     "matplotlib>=3.11.1",
     "numpy>=2.5.2",

@@ -1,5 +1,5 @@
-from simulation.model1_client import load_model1_predictions
-from simulation.monte_carlo import simulate_cashflow
+from Monte_Carlo.model1_client import load_model1_predictions
+from Monte_Carlo.monte_carlo import simulate_cashflow
 
 # Step 1: get real Model 1 predictions for all open invoices (via the live API)
 predictions = load_model1_predictions()

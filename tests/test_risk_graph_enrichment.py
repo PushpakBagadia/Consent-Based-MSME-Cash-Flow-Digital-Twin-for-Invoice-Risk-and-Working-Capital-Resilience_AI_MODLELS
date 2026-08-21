@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pandas as pd
 
-from simulation.anomaly_client import attach_anomaly_flags, NOT_FLAGGED_LABEL
+from Monte_Carlo.anomaly_client import attach_anomaly_flags, NOT_FLAGGED_LABEL
 from risk_graph.shap_edge_weights import _extract_contributions, _build_explain_payload, load_shap_edge_weights
 
 

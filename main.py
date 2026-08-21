@@ -36,10 +36,13 @@ from model5_shap import (
     Model5Artifacts,
     explain_invoice,
 )
+from model6_explanation import narrate_invoice
 
 from ocr_extraction import extract_invoice
 from api.cashflow_api import router as cashflow_router
-from anomaly_api import router as anomaly_router
+from api.anomaly_api import router as anomaly_router
+from api.risk_graph_api import router as risk_graph_router
+from api.recommendation_ranker_api import router as recommendation_ranker_router
 
 # ============================================================
 # PATHS
@@ -76,7 +79,8 @@ app = FastAPI(
 
 app.include_router(cashflow_router)
 app.include_router(anomaly_router)
-
+app.include_router(risk_graph_router)
+app.include_router(recommendation_ranker_router)
 # ============================================================
 # GLOBAL MODEL ARTIFACTS
 # ============================================================
@@ -179,6 +183,11 @@ class PredictionOutput(BaseModel):
         "normal",
         "low",
     ]
+
+class NarrationOutput(BaseModel):
+    invoice_id: str
+    text: str
+    source: Literal["llm", "fallback"]
 
 
 # ============================================================
@@ -417,6 +426,99 @@ def explain_invoices(
 
     return explanations
 
+
+# ============================================================
+# MODEL 6 - LLM NARRATION OF SHAP EXPLANATIONS
+# ============================================================
+
+@app.post(
+    "/narrate/invoices",
+    response_model=list[NarrationOutput],
+)
+def narrate_invoices(
+    invoices: list[InvoiceInput],
+):
+    """
+    Runs Model 1 (confidence) + Model 5 (SHAP explanation) internally,
+    then narrates each invoice's result in plain language via Model 6.
+
+    Model 6 itself never computes anything - it only narrates the
+    explanation dict it's handed here. This endpoint exists to wire
+    that narrow scope up to real data in one call, rather than
+    requiring the caller to hit /predict/invoices and /explain/invoices
+    separately and stitch the results together themselves.
+
+    Note: narrate_invoice() makes a real LLM call per invoice (with a
+    timeout + one retry + deterministic fallback baked in). This is
+    fine for the per-invoice/on-demand usage it's designed for, but
+    isn't meant for large batch requests - keep invoice lists small.
+    """
+
+    if artifacts is None:
+        raise HTTPException(
+            status_code=503,
+            detail="model not loaded yet",
+        )
+
+    if shap_artifacts is None:
+        raise HTTPException(
+            status_code=503,
+            detail="SHAP explainer not loaded yet",
+        )
+
+    df = pd.DataFrame(
+        [
+            inv.model_dump()
+            for inv in invoices
+        ]
+    )
+
+    df["issue_date"] = pd.to_datetime(
+        df["issue_date"]
+    )
+
+    # Model 1 - needed only for the confidence flag Model 6 uses to
+    # soften language on low-confidence (new-customer) predictions.
+    predictions = predict_payment_window(
+        df,
+        artifacts,
+    )
+
+    confidence_by_invoice = {
+        row.invoice_id: row.confidence
+        for row in predictions.itertuples()
+    }
+
+    # Model 5 - the actual explanation Model 6 narrates. Same call
+    # /explain/invoices makes, same output shape (invoice_id,
+    # base_value, predicted_value, contributions[]).
+    explanations = explain_invoice(
+        df,
+        shap_artifacts,
+    )
+
+    results = []
+
+    for explanation in explanations:
+
+        confidence = confidence_by_invoice.get(
+            explanation["invoice_id"]
+        )
+
+        narration = narrate_invoice(
+            explanation,
+            confidence,
+        )
+
+        results.append(
+            NarrationOutput(
+                invoice_id=explanation["invoice_id"],
+                text=narration["text"],
+                source=narration["source"],
+            )
+        )
+
+    return results
 
 # ============================================================
 # MODEL 4 - OCR EXTRACTION
